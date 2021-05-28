@@ -29,15 +29,19 @@ void Node::Init () {
   node_handle_.param<std::string>(name_of_node_+ "/camera_frame_id", camera_frame_id_param_, "camera_link");
   node_handle_.param<std::string>(name_of_node_+ "/target_frame_id", target_frame_id_param_, "base_link");
   node_handle_.param<std::string>(name_of_node_ + "/map_file", map_file_name_param_, "map.bin");
+  // Bow 字典文件
   node_handle_.param<std::string>(name_of_node_ + "/voc_file", voc_file_name_param_, "file_not_set");
   node_handle_.param(name_of_node_ + "/load_map", load_map_param_, false);
 
    // Create a parameters object to pass to the Tracking system
    ORB_SLAM2::ORBParameters parameters;
+   // 获取orb slam需要的参数信息
    LoadOrbParameters (parameters);
 
+  // 创建 orb slam 节点（字典， orb类型， 参数， 地图文件名）
   orb_slam_ = new ORB_SLAM2::System (voc_file_name_param_, sensor_, parameters, map_file_name_param_, load_map_param_);
 
+  // server 用于存储 orb地图
   service_server_ = node_handle_.advertiseService(name_of_node_+"/save_map", &Node::SaveMapSrv, this);
 
   //Setup dynamic reconfigure
@@ -49,12 +53,14 @@ void Node::Init () {
   tfBuffer.reset(new tf2_ros::Buffer);
   tfListener.reset(new tf2_ros::TransformListener(*tfBuffer));
 
+  // 发布slam过程中的image
   rendered_image_publisher_ = image_transport_.advertise (name_of_node_+"/debug_image", 1);
   if (publish_pointcloud_param_) {
     map_points_publisher_ = node_handle_.advertise<sensor_msgs::PointCloud2> (name_of_node_+"/map_points", 1);
   }
 
   // Enable publishing camera's pose as PoseStamped message
+  // 发布位姿
   if (publish_pose_param_) {
     pose_publisher_ = node_handle_.advertise<geometry_msgs::PoseStamped> (name_of_node_+"/pose", 1);
   }
@@ -64,13 +70,16 @@ void Node::Init () {
 
 
 void Node::Update () {
+  // 获取orb slam的key pose
   cv::Mat position = orb_slam_->GetCurrentPosition();
 
   if (!position.empty()) {
+    // 发布TF变换
     if (publish_tf_param_){
       PublishPositionAsTransform(position);
     }
 
+    // 发布位姿
     if (publish_pose_param_) {
       PublishPositionAsPoseStamped(position);
     }
@@ -86,12 +95,13 @@ void Node::Update () {
 
 }
 
-
+// 发布点云
 void Node::PublishMapPoints (std::vector<ORB_SLAM2::MapPoint*> map_points) {
   sensor_msgs::PointCloud2 cloud = MapPointsToPointCloud (map_points);
   map_points_publisher_.publish (cloud);
 }
 
+// tf 变换
 tf2::Transform Node::TransformToTarget (tf2::Transform tf_in, std::string frame_in, std::string frame_target) {
   // Transform tf_in from frame_in to frame_target
   tf2::Transform tf_map2orig = tf_in;
@@ -147,6 +157,7 @@ tf2::Transform Node::TransformToTarget (tf2::Transform tf_in, std::string frame_
   return tf_map2target;
 }
 
+// 将位置转换为tf变换发布
 void Node::PublishPositionAsTransform (cv::Mat position) {
   // Get transform from map to camera frame
   tf2::Transform tf_transform = TransformFromMat(position);
@@ -164,7 +175,9 @@ void Node::PublishPositionAsTransform (cv::Mat position) {
   tf_broadcaster.sendTransform(msg);
 }
 
+// 发布位姿 topic
 void Node::PublishPositionAsPoseStamped (cv::Mat position) {
+  // 将mat 格式转换为 tf格式
   tf2::Transform tf_position = TransformFromMat(position);
 
   // Make transform from camera frame to target frame
@@ -228,7 +241,7 @@ tf2::Transform Node::TransformFromMat (cv::Mat position_mat) {
   return tf2::Transform (tf_camera_rotation, tf_camera_translation);
 }
 
-
+// 将orb的点云格式转换成ros 的point cloud 格式
 sensor_msgs::PointCloud2 Node::MapPointsToPointCloud (std::vector<ORB_SLAM2::MapPoint*> map_points) {
   if (map_points.size() == 0) {
     std::cout << "Map point vector is empty!" << std::endl;
@@ -301,7 +314,7 @@ bool Node::SaveMapSrv (orb_slam2_ros::SaveMap::Request &req, orb_slam2_ros::Save
   return res.success;
 }
 
-
+// 获取参数信息
 void Node::LoadOrbParameters (ORB_SLAM2::ORBParameters& parameters) {
   //ORB SLAM configuration parameters
   node_handle_.param(name_of_node_ + "/camera_fps", parameters.maxFrames, 30);

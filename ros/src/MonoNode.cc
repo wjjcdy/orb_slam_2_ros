@@ -34,7 +34,7 @@ MonoNode::MonoNode (ORB_SLAM2::System::eSensor sensor, ros::NodeHandle &node_han
 MonoNode::~MonoNode () {
 }
 
-
+// 接收rgb图像，进行单目slam
 void MonoNode::ImageCallback (const sensor_msgs::ImageConstPtr& msg) {
   cv_bridge::CvImageConstPtr cv_in_ptr;
   try {
@@ -46,7 +46,8 @@ void MonoNode::ImageCallback (const sensor_msgs::ImageConstPtr& msg) {
 
   current_frame_time_ = msg->header.stamp;
 
+  // 前端处理
   orb_slam_->TrackMonocular(cv_in_ptr->image,cv_in_ptr->header.stamp.toSec());
-
+  // slam 结果数据更新
   Update ();
 }
