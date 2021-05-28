@@ -36,6 +36,7 @@ Frame::Frame()
 {}
 
 //Copy Constructor
+// Frame 构造函数，复制形式传参
 Frame::Frame(const Frame &frame)
     :mpORBvocabulary(frame.mpORBvocabulary), mpORBextractorLeft(frame.mpORBextractorLeft), mpORBextractorRight(frame.mpORBextractorRight),
      mTimeStamp(frame.mTimeStamp), mK(frame.mK.clone()), mDistCoef(frame.mDistCoef.clone()),
@@ -116,6 +117,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     AssignFeaturesToGrid();
 }
 
+// rgbd frame 构造函数
 Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
     :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
      mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
@@ -133,6 +135,7 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
     // ORB extraction
+    // 提取orb特征点
     ExtractORB(0,imGray);
 
     N = mvKeys.size();
@@ -140,16 +143,20 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
     if(mvKeys.empty())
         return;
 
+    // 将特征点去畸变
     UndistortKeyPoints();
 
+    // 从深度图中提取特征点的z坐标
     ComputeStereoFromRGBD(imDepth);
 
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
     mvbOutlier = vector<bool>(N,false);
 
     // This is done only for the first Frame (or after a change in the calibration)
+    // 初始化，提取摄像机内参
     if(mbInitialComputations)
     {
+        // 计算图像边界
         ComputeImageBounds(imGray);
 
         mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/static_cast<float>(mnMaxX-mnMinX);
@@ -167,6 +174,7 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 
     mb = mbf/fx;
 
+    // 将特征点划分到每个栅格内
     AssignFeaturesToGrid();
 }
 
@@ -227,13 +235,16 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
     AssignFeaturesToGrid();
 }
 
+// 将特征点划分到栅格内
 void Frame::AssignFeaturesToGrid()
 {
+    // 平均的每个栅格内特征点个数
     int nReserve = 0.5f*N/(FRAME_GRID_COLS*FRAME_GRID_ROWS);
+    // 预分配空间，暂时发现没有任何用途
     for(unsigned int i=0; i<FRAME_GRID_COLS;i++)
         for (unsigned int j=0; j<FRAME_GRID_ROWS;j++)
             mGrid[i][j].reserve(nReserve);
-
+    // 根据每个特征点位置，将索引放入栅格内
     for(int i=0;i<N;i++)
     {
         const cv::KeyPoint &kp = mvKeysUn[i];
@@ -244,6 +255,7 @@ void Frame::AssignFeaturesToGrid()
     }
 }
 
+// 提取orb特征点
 void Frame::ExtractORB(int flag, const cv::Mat &im)
 {
     if(flag==0)
@@ -252,12 +264,14 @@ void Frame::ExtractORB(int flag, const cv::Mat &im)
         (*mpORBextractorRight)(im,cv::Mat(),mvKeysRight,mDescriptorsRight);
 }
 
+// 设置摄像机外参，即pose
 void Frame::SetPose(cv::Mat Tcw)
 {
     mTcw = Tcw.clone();
     UpdatePoseMatrices();
 }
 
+// 根据pose提取姿态和位置
 void Frame::UpdatePoseMatrices()
 { 
     mRcw = mTcw.rowRange(0,3).colRange(0,3);
@@ -266,6 +280,7 @@ void Frame::UpdatePoseMatrices()
     mOw = -mRcw.t()*mtcw;
 }
 
+// 判断某特征点是否在该帧内被观测到
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
     pMP->mbTrackInView = false;
@@ -274,26 +289,31 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     cv::Mat P = pMP->GetWorldPos(); 
 
     // 3D in camera coordinates
+    // 获取特征点在该帧坐标系下的坐标
     const cv::Mat Pc = mRcw*P+mtcw;
     const float &PcX = Pc.at<float>(0);
     const float &PcY= Pc.at<float>(1);
     const float &PcZ = Pc.at<float>(2);
 
     // Check positive depth
+    // 若深度为负值，显然不在
     if(PcZ<0.0f)
         return false;
 
     // Project in image and check it is not outside
+    // 计算投影到图像上的坐标
     const float invz = 1.0f/PcZ;
     const float u=fx*PcX*invz+cx;
     const float v=fy*PcY*invz+cy;
 
+    // 如果投影后的坐标超出图像边界，则显然不在
     if(u<mnMinX || u>mnMaxX)
         return false;
     if(v<mnMinY || v>mnMaxY)
         return false;
 
     // Check distance is in the scale invariance region of the MapPoint
+    // 根据该特征点所在金字塔的范围，判断其点的距离如果超出被检出的范围，则不在。（即太远或太近，是无法检测出的）
     const float maxDistance = pMP->GetMaxDistanceInvariance();
     const float minDistance = pMP->GetMinDistanceInvariance();
     const cv::Mat PO = P-mOw;
@@ -303,6 +323,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
         return false;
 
    // Check viewing angle
+   // 计算该特特征点到该帧的光心与该特征点法线的夹角，过大则不在
     cv::Mat Pn = pMP->GetNormal();
 
     const float viewCos = PO.dot(Pn)/dist;
@@ -310,10 +331,13 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     if(viewCos<viewingCosLimit)
         return false;
 
+    // 表明此特征点应该在该帧观测到
     // Predict scale in the image
+    // 预测该帧中金字塔等级
     const int nPredictedLevel = pMP->PredictScale(dist,this);
 
     // Data used by the tracking
+    // 更新用于tracking的数据
     pMP->mbTrackInView = true;
     pMP->mTrackProjX = u;
     pMP->mTrackProjXR = u - mbf*invz;
@@ -324,11 +348,15 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     return true;
 }
 
+// 获取指定区域内的特征点
+// 以x，y为中心，上下左右 在r距离内的特征点
 vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
 {
+    //分配空间
     vector<size_t> vIndices;
     vIndices.reserve(N);
 
+    // 将指定的坐标边界转换为栅格化的坐标，如果在边界外，则直接返回空
     const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
     if(nMinCellX>=FRAME_GRID_COLS)
         return vIndices;
@@ -345,16 +373,19 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     if(nMaxCellY<0)
         return vIndices;
 
+    // 判断金字塔level范围内
     const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
 
+    // 遍历指定的栅格空间
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
+            // 提取栅格中所有的特征点
             const vector<size_t> vCell = mGrid[ix][iy];
             if(vCell.empty())
                 continue;
-
+            // 判断每个特征点是否在level范围内
             for(size_t j=0, jend=vCell.size(); j<jend; j++)
             {
                 const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
@@ -366,7 +397,7 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                         if(kpUn.octave>maxLevel)
                             continue;
                 }
-
+                // 判断每个特征点的是否在中心点x，y的r距离内
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 
@@ -379,6 +410,7 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     return vIndices;
 }
 
+// 判断一个特征点在所在栅格位置
 bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
 {
     posX = round((kp.pt.x-mnMinX)*mfGridElementWidthInv);
@@ -391,7 +423,7 @@ bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
     return true;
 }
 
-
+// 将该帧的特征点计算BOW字典
 void Frame::ComputeBoW()
 {
     if(mBowVec.empty())
@@ -401,6 +433,7 @@ void Frame::ComputeBoW()
     }
 }
 
+// 将特征点坐标进行去畸变
 void Frame::UndistortKeyPoints()
 {
     if(mDistCoef.at<float>(0)==0.0)
@@ -433,6 +466,7 @@ void Frame::UndistortKeyPoints()
     }
 }
 
+// 计算图片地图边界，主要因为去畸变可能会导致边界变化
 void Frame::ComputeImageBounds(const cv::Mat &imLeft)
 {
     if(mDistCoef.at<float>(0)!=0.0)
@@ -639,7 +673,7 @@ void Frame::ComputeStereoMatches()
     }
 }
 
-
+// 从深度图中提取特征点深度
 void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
 {
     mvuRight = vector<float>(N,-1);
@@ -658,11 +692,13 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
         if(d>0)
         {
             mvDepth[i] = d;
+            // 获取假象的右摄像头x坐标，（因为双目都是假设水平，并间距基线，故仅有x偏移）
             mvuRight[i] = kpU.pt.x-mbf/d;
         }
     }
 }
 
+//指定的特征点从图像坐标转换成世界坐标
 cv::Mat Frame::UnprojectStereo(const int &i)
 {
     const float z = mvDepth[i];
@@ -672,7 +708,9 @@ cv::Mat Frame::UnprojectStereo(const int &i)
         const float v = mvKeysUn[i].pt.y;
         const float x = (u-cx)*z*invfx;
         const float y = (v-cy)*z*invfy;
+        // 相机坐标系下空间坐标
         cv::Mat x3Dc = (cv::Mat_<float>(3,1) << x, y, z);
+        // 转换成世界坐标
         return mRwc*x3Dc+mOw;
     }
     else
