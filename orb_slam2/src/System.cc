@@ -28,6 +28,11 @@
 namespace ORB_SLAM2
 {
 
+//构建函数
+/*
+input:
+字典， 类型（mono，rgbd，stereo）,参数，mapfile， 是否导入地图
+ */
 System::System(const string strVocFile, const eSensor sensor, ORBParameters& parameters,
                const std::string & map_file, bool load_map): // map serialization addition
                mSensor(sensor), mbReset(false),mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false),
@@ -46,7 +51,7 @@ System::System(const string strVocFile, const eSensor sensor, ORBParameters& par
     cout << "Subminor version : " << CV_SUBMINOR_VERSION << endl;
 
     cout << "Input sensor was set to: ";
-
+    // 打印slam 类型
     if(mSensor==MONOCULAR)
         cout << "Monocular" << endl;
     else if(mSensor==STEREO)
@@ -56,25 +61,29 @@ System::System(const string strVocFile, const eSensor sensor, ORBParameters& par
 
     //Load ORB Vocabulary
     cout << endl << "Loading ORB Vocabulary." << endl;
-
+    // 创建字典
     mpVocabulary = new ORBVocabulary();
 
-    //try to load from the binary file
+    //try to load from the binary file，导入2进制文件
     bool bVocLoad = mpVocabulary->loadFromBinFile(strVocFile+".bin");
 
+    // 未成功导入
     if(!bVocLoad)
     {
         cerr << "Cannot find binary file for vocabulary. " << endl;
         cerr << "Failed to open at: " << strVocFile+".bin" << endl;
         cerr << "Trying to open the text file. This could take a while..." << endl;
+        // 导入txt 文件
         bool bVocLoad2 = mpVocabulary->loadFromTextFile(strVocFile);
         if(!bVocLoad2)
-        {
+        { 
+            // 如果都导入失败，则退出不能开启slam
             cerr << "Wrong path to vocabulary. " << endl;
             cerr << "Failed to open at: " << strVocFile << endl;
             exit(-1);
         }
         cerr << "Saving the vocabulary to binary for the next time to " << strVocFile+".bin" << endl;
+        // 重新存储成bin格式文件
         mpVocabulary->saveToBinFile(strVocFile+".bin");
     }
 
@@ -82,34 +91,43 @@ System::System(const string strVocFile, const eSensor sensor, ORBParameters& par
 
     // begin map serialization addition
     // load serialized map
+    // 是否载入已有地图
     if (load_map && LoadMap(map_file)) {
         std::cout << "Using loaded map with " << mpMap->MapPointsInMap() << " points\n" << std::endl;
     }
     else {
+        // 新建地图，则需创建一个空的地图对象，
         //Create KeyFrame Database
+        // 初始化关键帧数据对象，主要存储字典里包含的值，用于重定位和闭环
         mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
         //Create the Map
+        // 创建map数据，应该是特征点和对应的keypose
         mpMap = new Map();
     }
     // end map serialization addition
 
     //Create Drawers. These are used by the Viewer
+    // 创建绘图关键帧对象
     mpFrameDrawer = new FrameDrawer(mpMap);
 
     //Initialize the Tracking thread
     //(it will live in the main thread of execution, the one that called this constructor)
+    // 初始化前端线程
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer,
                              mpMap, mpKeyFrameDatabase, mSensor, parameters);
 
     //Initialize the Local Mapping thread and launch
+    // 初始化建图线程
     mpLocalMapper = new LocalMapping(mpMap, mSensor==MONOCULAR);
     mptLocalMapping = new thread(&ORB_SLAM2::LocalMapping::Run,mpLocalMapper);
 
     //Initialize the Loop Closing thread and launch
+    // 初始化闭环线程
     mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR);
     mptLoopClosing = new thread(&ORB_SLAM2::LoopClosing::Run, mpLoopCloser);
 
     //Set pointers between threads
+    // 三个线程间存在联系
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
 
@@ -122,6 +140,7 @@ System::System(const string strVocFile, const eSensor sensor, ORBParameters& par
     currently_localizing_only_ = false;
 }
 
+// 双目slam
 void System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp)
 {
     if(mSensor!=STEREO)
@@ -173,6 +192,7 @@ void System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const do
     current_position_ = Tcw;
 }
 
+// rgbd slam
 void System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const double &timestamp)
 {
     if(mSensor!=RGBD)
@@ -224,6 +244,7 @@ void System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const double 
     current_position_ = Tcw;
 }
 
+// 单目slam
 void System::TrackMonocular(const cv::Mat &im, const double &timestamp)
 {
     if(mSensor!=MONOCULAR)
@@ -235,6 +256,7 @@ void System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     // Check mode change
     {
         unique_lock<mutex> lock(mMutexMode);
+        // 是否更改纯定位模式
         if(mbActivateLocalizationMode)
         {
             mpLocalMapper->RequestStop();
@@ -257,6 +279,7 @@ void System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     }
 
     // Check reset
+    // 判断是否重启tracking
     {
     unique_lock<mutex> lock(mMutexReset);
     if(mbReset)
@@ -266,6 +289,7 @@ void System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     }
     }
 
+    // 开始slam，传入图像，输出位姿
     cv::Mat Tcw = mpTracker->GrabImageMonocular(im,timestamp);
 
     unique_lock<mutex> lock2(mMutexState);
@@ -289,6 +313,7 @@ bool System::MapChanged()
         return false;
 }
 
+// 当前是否在全局BA
 bool System::isRunningGBA()
 {
     return  mpLoopCloser->isRunningGBA();
@@ -300,6 +325,7 @@ void System::Reset()
     mbReset = true;
 }
 
+//关闭进程，包括闭环和局部建图进程
 void System::Shutdown()
 {
     mpLocalMapper->RequestFinish();
@@ -312,6 +338,7 @@ void System::Shutdown()
     }
 }
 
+// 保存轨迹TUM 类型，但不能保存monocular类型slam
 void System::SaveTrajectoryTUM(const string &filename)
 {
     cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
@@ -372,7 +399,7 @@ void System::SaveTrajectoryTUM(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
-
+// 保存关键帧轨迹
 void System::SaveKeyFrameTrajectoryTUM(const string &filename)
 {
     cout << endl << "Saving keyframe trajectory to " << filename << " ..." << endl;
@@ -409,6 +436,7 @@ void System::SaveKeyFrameTrajectoryTUM(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
+// 保存轨迹， KITTI类型不能用于monocular 类型slam
 void System::SaveTrajectoryKITTI(const string &filename)
 {
     cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
@@ -464,10 +492,12 @@ void System::SaveTrajectoryKITTI(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
+// 设置最小关键帧个数
 void System::SetMinimumKeyFrames (int min_num_kf) {
   mpTracker->SetMinimumKeyFrames(min_num_kf);
 }
 
+// 获取当前位姿
 cv::Mat System::GetCurrentPosition () {
   return current_position_;
 }
@@ -478,12 +508,14 @@ int System::GetTrackingState()
     return mTrackingState;
 }
 
+// 获取全局地图特征点
 vector<MapPoint*> System::GetTrackedMapPoints()
 {
     unique_lock<mutex> lock(mMutexState);
     return mTrackedMapPoints;
 }
 
+// 获取关键帧
 vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
 {
     unique_lock<mutex> lock(mMutexState);
@@ -494,11 +526,12 @@ cv::Mat System::DrawCurrentFrame () {
   return mpFrameDrawer->DrawFrame();
 }
 
+// 获取整个点云地图
 std::vector<MapPoint*> System::GetAllMapPoints() {
   return mpMap->GetAllMapPoints();
 }
 
-
+// 设置堆栈大小
 bool System::SetCallStackSize (const rlim_t kNewStackSize) {
     struct rlimit rlimit;
     int operation_result;
@@ -526,7 +559,7 @@ bool System::SetCallStackSize (const rlim_t kNewStackSize) {
     return false;
 }
 
-
+// 获取堆栈大小
 rlim_t System::GetCurrentCallStackSize () {
     struct rlimit rlimit;
     int operation_result;
@@ -540,7 +573,7 @@ rlim_t System::GetCurrentCallStackSize () {
     return rlimit.rlim_cur;
 }
 
-
+// 关闭仅定位模式
 void System::ActivateLocalizationMode()
 {
     currently_localizing_only_ = true;
@@ -548,6 +581,7 @@ void System::ActivateLocalizationMode()
     mbActivateLocalizationMode = true;
 }
 
+// 开启仅定位模式
 void System::DeactivateLocalizationMode()
 {
     currently_localizing_only_ = false;
@@ -555,6 +589,7 @@ void System::DeactivateLocalizationMode()
     mbDeactivateLocalizationMode = true;
 }
 
+// 启动和关闭定位功能
 void System::EnableLocalizationOnly (bool localize_only) {
   if (localize_only != currently_localizing_only_) {
     currently_localizing_only_ = localize_only;
@@ -570,6 +605,7 @@ void System::EnableLocalizationOnly (bool localize_only) {
 
 
 // map serialization addition
+// 存储地图，存储2进制文件
 bool System::SaveMap(const string &filename) {
     unique_lock<mutex>MapPointGlobal(MapPoint::mGlobalMutex);
     std::ofstream out(filename, std::ios_base::binary);
@@ -606,6 +642,7 @@ bool System::SaveMap(const string &filename) {
     return true;
 }
 
+//载入已有地图，载入已序列化后的地图
 bool System::LoadMap(const string &filename) {
 
     unique_lock<mutex>MapPointGlobal(MapPoint::mGlobalMutex);
