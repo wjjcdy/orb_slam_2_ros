@@ -30,13 +30,14 @@ using namespace std;
 namespace ORB_SLAM2
 {
 
+// 构造函数，导入词袋数据
 KeyFrameDatabase::KeyFrameDatabase (const ORBVocabulary &voc):
     mpVoc(&voc)
 {
     mvInvertedFile.resize(voc.size());
 }
 
-
+// 在词典文件中增加新的KF的单词，并记录单词对应的keyframe
 void KeyFrameDatabase::add(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutex);
@@ -45,16 +46,20 @@ void KeyFrameDatabase::add(KeyFrame *pKF)
         mvInvertedFile[vit->first].push_back(pKF);
 }
 
+// 从词典中删除某kf所有单词
 void KeyFrameDatabase::erase(KeyFrame* pKF)
 {
     unique_lock<mutex> lock(mMutex);
 
     // Erase elements in the Inverse File for the entry
+    // 遍历该keyframe中的每个单词
     for(DBoW2::BowVector::const_iterator vit=pKF->mBowVec.begin(), vend=pKF->mBowVec.end(); vit!=vend; vit++)
     {
         // List of keyframes that share the word
+        // 获取每个单词包含的keyframe list
         list<KeyFrame*> &lKFs =   mvInvertedFile[vit->first];
 
+        // 如果存在与指定keyframe一致的删除
         for(list<KeyFrame*>::iterator lit=lKFs.begin(), lend= lKFs.end(); lit!=lend; lit++)
         {
             if(pKF==*lit)
@@ -66,50 +71,65 @@ void KeyFrameDatabase::erase(KeyFrame* pKF)
     }
 }
 
+// 清除整个用于闭环或重定位的词典集合
 void KeyFrameDatabase::clear()
 {
     mvInvertedFile.clear();
     mvInvertedFile.resize(mpVoc->size());
 }
 
-
+// 检测与指定keyframe 有闭环关系的keyframe
 vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float minScore)
 {
+    // 获取所有与给定keyframe链接关系的keyframe，有链接关系是由连续时间关系的（即滑窗）
     set<KeyFrame*> spConnectedKeyFrames = pKF->GetConnectedKeyFrames();
     list<KeyFrame*> lKFsSharingWords;
 
     // Search all keyframes that share a word with current keyframes
     // Discard keyframes connected to the query keyframe
+    // 查找所有关键帧与当前帧存在共同特征点的，需要剔除链接关系的keyframe（即最近距离和时间内的keyframe）
     {
         unique_lock<mutex> lock(mMutex);
 
+        // 遍历指定keyframe里所有单词
         for(DBoW2::BowVector::const_iterator vit=pKF->mBowVec.begin(), vend=pKF->mBowVec.end(); vit != vend; vit++)
         {
+            // 每个单词对应所有的keyframe list
             list<KeyFrame*> &lKFs =   mvInvertedFile[vit->first];
 
+            // 遍历所有的keyframe
             for(list<KeyFrame*>::iterator lit=lKFs.begin(), lend= lKFs.end(); lit!=lend; lit++)
             {
                 KeyFrame* pKFi=*lit;
+                // 每个单词第一次搜索到
                 if(pKFi->mnLoopQuery!=pKF->mnId)
                 {
+                    // 开始计数
                     pKFi->mnLoopWords=0;
+                    // 存在共同单词的keyframe 不可以在关联的帧中
                     if(!spConnectedKeyFrames.count(pKFi))
                     {
+                        // 记录发现为闭环的keyframe并记录id
                         pKFi->mnLoopQuery=pKF->mnId;
+                        // 将有共同单词keyframe的放入 list中
                         lKFsSharingWords.push_back(pKFi);
                     }
                 }
+                // 记录每个其他kf与指定keyframe共同单词的个数
                 pKFi->mnLoopWords++;
             }
         }
     }
 
+    // 不存在共同单词的其他keyframe
     if(lKFsSharingWords.empty())
         return vector<KeyFrame*>();
 
+    // 开辟用于匹配评分的容器
     list<pair<float,KeyFrame*> > lScoreAndMatch;
 
     // Only compare against those keyframes that share enough words
+    // 获得具有共同单词的keyframe中，共同单词数最多的keyframe
     int maxCommonWords=0;
     for(list<KeyFrame*>::iterator lit=lKFsSharingWords.begin(), lend= lKFsSharingWords.end(); lit!=lend; lit++)
     {
@@ -117,27 +137,33 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
             maxCommonWords=(*lit)->mnLoopWords;
     }
 
+    // 获取最小共同的单词数
     int minCommonWords = maxCommonWords*0.8f;
 
     int nscores=0;
 
     // Compute similarity score. Retain the matches whose score is higher than minScore
+    // 遍历所有共同单词的keyframe，仅共同单词数判断大于minCommonWords的keyframe
     for(list<KeyFrame*>::iterator lit=lKFsSharingWords.begin(), lend= lKFsSharingWords.end(); lit!=lend; lit++)
     {
         KeyFrame* pKFi = *lit;
 
+        // 仅判断单词数大于阈值的
         if(pKFi->mnLoopWords>minCommonWords)
         {
+            // 统计总共的个数
             nscores++;
-
+            // 根据词典计算两帧的相似score
             float si = mpVoc->score(pKF->mBowVec,pKFi->mBowVec);
 
             pKFi->mLoopScore = si;
+            // 仅保存大于相似度阈值的keyframe
             if(si>=minScore)
                 lScoreAndMatch.push_back(make_pair(si,pKFi));
         }
     }
 
+    // 无满足条件的keyframe
     if(lScoreAndMatch.empty())
         return vector<KeyFrame*>();
 
@@ -147,18 +173,24 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
     // Lets now accumulate score by covisibility
     for(list<pair<float,KeyFrame*> >::iterator it=lScoreAndMatch.begin(), itend=lScoreAndMatch.end(); it!=itend; it++)
     {
+        // 共同单词的keyframe
         KeyFrame* pKFi = it->second;
+        // 提取keyframe中关联度前10的keyframe
         vector<KeyFrame*> vpNeighs = pKFi->GetBestCovisibilityKeyFrames(10);
 
         float bestScore = it->first;
         float accScore = it->first;
         KeyFrame* pBestKF = pKFi;
+        // 遍历前10个相关的keyframe
         for(vector<KeyFrame*>::iterator vit=vpNeighs.begin(), vend=vpNeighs.end(); vit!=vend; vit++)
         {
             KeyFrame* pKF2 = *vit;
+            // 与当前keyframe有闭环且共同单词数目大于阈值
             if(pKF2->mnLoopQuery==pKF->mnId && pKF2->mnLoopWords>minCommonWords)
             {
+                // 累计匹配的分数
                 accScore+=pKF2->mLoopScore;
+                // 获取最大的匹配的分数和对应的keyframe
                 if(pKF2->mLoopScore>bestScore)
                 {
                     pBestKF=pKF2;
@@ -167,23 +199,29 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
             }
         }
 
+        // 记录累计的评分和对应最大的keyframe记录
         lAccScoreAndMatch.push_back(make_pair(accScore,pBestKF));
+        // 获取最大累计的匹配评分
         if(accScore>bestAccScore)
             bestAccScore=accScore;
     }
 
     // Return all those keyframes with a score higher than 0.75*bestScore
+    // 获取最小的累计评分
     float minScoreToRetain = 0.75f*bestAccScore;
 
     set<KeyFrame*> spAlreadyAddedKF;
+    // 开启闭环候选帧的空间
     vector<KeyFrame*> vpLoopCandidates;
     vpLoopCandidates.reserve(lAccScoreAndMatch.size());
-
+    // 遍历
     for(list<pair<float,KeyFrame*> >::iterator it=lAccScoreAndMatch.begin(), itend=lAccScoreAndMatch.end(); it!=itend; it++)
     {
+        // 仅判断累计评分大于一定阈值的
         if(it->first>minScoreToRetain)
         {
             KeyFrame* pKFi = it->second;
+            // 记录闭环候选帧，不重复
             if(!spAlreadyAddedKF.count(pKFi))
             {
                 vpLoopCandidates.push_back(pKFi);
@@ -196,6 +234,7 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
     return vpLoopCandidates;
 }
 
+// 用于重定位的，查找与指定keyframe有共同单词的（即有关系）的keyframe队列
 vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
 {
     list<KeyFrame*> lKFsSharingWords;
