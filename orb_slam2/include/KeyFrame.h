@@ -216,7 +216,9 @@ protected:
 
     // Spanning Tree and Loop Edges
     bool mbFirstConnection;
+    // 父节点指针
     KeyFrame* mpParent;
+    // 子节点队列
     std::set<KeyFrame*> mspChildrens;
     std::set<KeyFrame*> mspLoopEdges;
 
