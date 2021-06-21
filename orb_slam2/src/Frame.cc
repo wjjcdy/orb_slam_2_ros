@@ -436,6 +436,7 @@ void Frame::ComputeBoW()
 // 将特征点坐标进行去畸变
 void Frame::UndistortKeyPoints()
 {
+    // 畸变参数
     if(mDistCoef.at<float>(0)==0.0)
     {
         mvKeysUn=mvKeys;
