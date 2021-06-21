@@ -339,13 +339,15 @@ void Node::LoadOrbParameters (ORB_SLAM2::ORBParameters& parameters) {
     if(camera_info == nullptr){
         ROS_WARN("Did not receive camera info before timeout, defaulting to launch file params.");
     } else {
+      // 内参
       parameters.fx = camera_info->K[0];
       parameters.fy = camera_info->K[4];
       parameters.cx = camera_info->K[2];
       parameters.cy = camera_info->K[5];
 
+      // 基线参数
       parameters.baseline = camera_info->P[3];
-
+      // camera 畸变参数
       parameters.k1 = camera_info->D[0];
       parameters.k2 = camera_info->D[1];
       parameters.p1 = camera_info->D[2];
