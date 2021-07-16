@@ -148,7 +148,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF)
                 nObs--;
 
             mObservations.erase(pKF);
-
+            // 删除的观测帧若为原始观测此mappoint的关键帧（即参考kf），则需更新
             if(mpRefKF==pKF)
                 mpRefKF=mObservations.begin()->first;
 

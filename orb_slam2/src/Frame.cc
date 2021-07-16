@@ -328,6 +328,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 
     const float viewCos = PO.dot(Pn)/dist;
 
+    // 夹角余弦不满足则跳过
     if(viewCos<viewingCosLimit)
         return false;
 

@@ -73,7 +73,7 @@ const int PATCH_SIZE = 31;
 const int HALF_PATCH_SIZE = 15;
 const int EDGE_THRESHOLD = 19;
 
-
+// 计算特征点方向
 static float IC_Angle(const Mat& image, Point2f pt,  const vector<int> & u_max)
 {
     int m_01 = 0, m_10 = 0;
@@ -407,21 +407,30 @@ static int bit_pattern_31_[256*4] =
     -1,-6, 0,-11/*mean (0.127148), correlation (0.547401)*/
 };
 
+// orb特征提取器构建函数
+/*
+_nfeatures : 提取特征点最大个数
+_scaleFactor： 金字塔尺度系数
+_nlevels： 金字塔层数
+*/
 ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
          int _iniThFAST, int _minThFAST):
     nfeatures(_nfeatures), scaleFactor(_scaleFactor), nlevels(_nlevels),
     iniThFAST(_iniThFAST), minThFAST(_minThFAST)
 {
+    // 金字塔层数
     mvScaleFactor.resize(nlevels);
     mvLevelSigma2.resize(nlevels);
     mvScaleFactor[0]=1.0f;
     mvLevelSigma2[0]=1.0f;
+    // 每层的尺度因子
     for(int i=1; i<nlevels; i++)
     {
         mvScaleFactor[i]=mvScaleFactor[i-1]*scaleFactor;
         mvLevelSigma2[i]=mvScaleFactor[i]*mvScaleFactor[i];
     }
 
+    // 每层尺度因子倒数
     mvInvScaleFactor.resize(nlevels);
     mvInvLevelSigma2.resize(nlevels);
     for(int i=0; i<nlevels; i++)
@@ -469,6 +478,14 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
     }
 }
 
+// 计算特征点朝向
+// 采用灰度质心
+/*
+input: 
+图像块
+特征点
+
+*/
 static void computeOrientation(const Mat& image, vector<KeyPoint>& keypoints, const vector<int>& umax)
 {
     for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
@@ -536,10 +553,16 @@ void ExtractorNode::DivideNode(ExtractorNode &n1, ExtractorNode &n2, ExtractorNo
 
 }
 
+// 说是8叉树，但实际上是4叉树存储结构
+// 简单来说将图片一分为4，则构成4份，即4个节点，
+// 每个节点可再次1分为4（如果该节点内的点个数不大于1，不需要再分）
+// 以此类推，当节点个数满足条件时，不再分裂
+// 节点个数超出阈值时，排序取前阈值个节点
 vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
                                        const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
 {
     // Compute how many initial nodes   
+    // 四舍五入
     const int nIni = round(static_cast<float>(maxX-minX)/(maxY-minY));
 
     const float hX = static_cast<float>(maxX-minX)/nIni;
@@ -549,6 +572,7 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
     vector<ExtractorNode*> vpIniNodes;
     vpIniNodes.resize(nIni);
 
+    // 实际上是4叉树，即一个矩形分成4块
     for(int i=0; i<nIni; i++)
     {
         ExtractorNode ni;
@@ -762,14 +786,18 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
     return vResultKeys;
 }
 
+// 采用8叉树方法计算fast 特征点
 void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoints)
 {
+    // 特征点根据金字塔分层
     allKeypoints.resize(nlevels);
 
+    // 以30*30为单元进行搜索
     const float W = 30;
 
     for (int level = 0; level < nlevels; ++level)
     {
+        // 每层的图片边界
         const int minBorderX = EDGE_THRESHOLD-3;
         const int minBorderY = minBorderX;
         const int maxBorderX = mvImagePyramid[level].cols-EDGE_THRESHOLD+3;
@@ -778,14 +806,17 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
         vector<cv::KeyPoint> vToDistributeKeys;
         vToDistributeKeys.reserve(nfeatures*10);
 
+        // 每层图片大小（已经剔除边界填充的部分）
         const float width = (maxBorderX-minBorderX);
         const float height = (maxBorderY-minBorderY);
-
+        // 将图片以30*30重新划分
         const int nCols = width/W;
         const int nRows = height/W;
+        // 由于整数类型的问题，行列为整数，故cell大小进行微调，向上取整
         const int wCell = ceil(width/nCols);
         const int hCell = ceil(height/nRows);
 
+        // 遍历每个单元格，计算这一层的fast角点
         for(int i=0; i<nRows; i++)
         {
             const float iniY =minBorderY+i*hCell;
@@ -793,7 +824,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
 
             if(iniY>=maxBorderY-3)
                 continue;
-            if(maxY>maxBorderY)
+            if(maxY>maxBorderY)      //不能超出真实大小
                 maxY = maxBorderY;
 
             for(int j=0; j<nCols; j++)
@@ -805,16 +836,19 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
                 if(maxX>maxBorderX)
                     maxX = maxBorderX;
 
+                // 对此cell的图像进行FAST角点提取，fast采用init阈值
+                // 使能采用非极大值抑制,
                 vector<cv::KeyPoint> vKeysCell;
                 FAST(mvImagePyramid[level].rowRange(iniY,maxY).colRange(iniX,maxX),
                      vKeysCell,iniThFAST,true);
 
+                // 如果无特征点提取出来，则采用最小阈值重新提取
                 if(vKeysCell.empty())
                 {
                     FAST(mvImagePyramid[level].rowRange(iniY,maxY).colRange(iniX,maxX),
                          vKeysCell,minThFAST,true);
                 }
-
+                // 记录特征点
                 if(!vKeysCell.empty())
                 {
                     for(vector<cv::KeyPoint>::iterator vit=vKeysCell.begin(); vit!=vKeysCell.end();vit++)
@@ -828,15 +862,19 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
             }
         }
 
+        // 取址另定义，则更改keypoint可更改allKeypoints
         vector<KeyPoint> & keypoints = allKeypoints[level];
         keypoints.reserve(nfeatures);
 
+        // 将所有fast点放入8叉树结构中，并从中挑选质量较好的keypoints
         keypoints = DistributeOctTree(vToDistributeKeys, minBorderX, maxBorderX,
                                       minBorderY, maxBorderY,mnFeaturesPerLevel[level], level);
 
+        // 每层的查找fast角点的单元size
         const int scaledPatchSize = PATCH_SIZE*mvScaleFactor[level];
 
         // Add border to coordinates and scale information
+        // 更新keypoints的信息，增加坐标，金字塔层数和该层缩放后的大小对应的size
         const int nkps = keypoints.size();
         for(int i=0; i<nkps ; i++)
         {
@@ -848,6 +886,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
     }
 
     // compute orientations
+    // 计算方向
     for (int level = 0; level < nlevels; ++level)
         computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
 }
@@ -1031,6 +1070,7 @@ void ORBextractor::ComputeKeyPointsOld(std::vector<std::vector<KeyPoint> > &allK
         computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
 }
 
+// 计算描述子
 static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Mat& descriptors,
                                const vector<Point>& pattern)
 {
@@ -1050,12 +1090,16 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
     assert(image.type() == CV_8UC1 );
 
     // Pre-compute the scale pyramid
+    // 提前计算金字塔
     ComputePyramid(image);
 
+    // 提取FAST角点，采用8叉树（实际上是4叉树）
     vector < vector<KeyPoint> > allKeypoints;
+    // 获取所有fast角点和方向
     ComputeKeyPointsOctTree(allKeypoints);
     //ComputeKeyPointsOld(allKeypoints);
 
+    // 计算描述子
     Mat descriptors;
 
     int nkeypoints = 0;
@@ -1104,26 +1148,35 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
     }
 }
 
+// 将图像构建金字塔
 void ORBextractor::ComputePyramid(cv::Mat image)
 {
     for (int level = 0; level < nlevels; ++level)
     {
+        // 每层的缩放因数
         float scale = mvInvScaleFactor[level];
+        // 计算size
         Size sz(cvRound((float)image.cols*scale), cvRound((float)image.rows*scale));
+        // 考虑边缘处，最后size
         Size wholeSize(sz.width + EDGE_THRESHOLD*2, sz.height + EDGE_THRESHOLD*2);
+        // 开辟空间
         Mat temp(wholeSize, image.type()), masktemp;
+        // 每层去除边缘的金字塔图像 指针空间
         mvImagePyramid[level] = temp(Rect(EDGE_THRESHOLD, EDGE_THRESHOLD, sz.width, sz.height));
 
         // Compute the resized image
+        // 不是第一层需要压缩
         if( level != 0 )
         {
             resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, INTER_LINEAR);
 
+            // ???有点绕，不太理解，直接resize不就好了？？？？？？
             copyMakeBorder(mvImagePyramid[level], temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
                            BORDER_REFLECT_101+BORDER_ISOLATED);            
         }
         else
         {
+            // 第一层则直接copy即可
             copyMakeBorder(image, temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
                            BORDER_REFLECT_101);            
         }

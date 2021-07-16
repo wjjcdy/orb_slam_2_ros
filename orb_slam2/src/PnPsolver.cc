@@ -170,6 +170,7 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
 
     set_maximum_number_of_correspondences(mRansacMinSet);
 
+    // 匹配的对数少于最小随机点数
     if(N<mRansacMinInliers)
     {
         bNoMore = true;
