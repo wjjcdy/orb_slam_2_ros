@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="tf" type="static_transform_publisher" name="link1_link2_broadcaster" args="0 0 0 0 0 0 base_link camera_link  10" />
+    <node pkg="rosbag" type="record" name="bag_record" args="/tf_static /camera/color/camera_info /camera/color/image_raw /camera/aligned_depth_to_color/camera_info /camera/aligned_depth_to_color/image_raw /"/> 
+</launch>
