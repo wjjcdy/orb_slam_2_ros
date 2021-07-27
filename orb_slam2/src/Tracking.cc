@@ -272,6 +272,7 @@ void Tracking::Track()
     // 无图像状态，则未初始化
     if(mState==NO_IMAGES_YET)
     {
+        // 标注还未初始化
         mState = NOT_INITIALIZED;
     }
 
@@ -281,6 +282,7 @@ void Tracking::Track()
     unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
 
     // 如果未初始化，需要先进行初始化
+    // 只有单目初始化较为复杂，主要是因为没有深度尺度
     if(mState==NOT_INITIALIZED)
     {
         // 双目和rgbd 初始化（深度值可不用初始化）
@@ -530,9 +532,10 @@ void Tracking::Track()
 
 }
 
-// 双目初始化
+// 双目或深度摄像机初始化
 void Tracking::StereoInitialization()
 {
+    // 当一帧的特征点个数超过500时，才会进入初始化
     if(mCurrentFrame.N>500)
     {
         // Set Frame pose to the origin
@@ -576,6 +579,7 @@ void Tracking::StereoInitialization()
         }
 
         // 打印目前地图中共有的mappoint的个数
+        // 初始化第一帧共添加多少个地图点
         cout << "New map created with " << mpMap->MapPointsInMap() << " points" << endl;
 
         // 局部建图器，添加一个kf
@@ -605,16 +609,20 @@ void Tracking::StereoInitialization()
     }
 }
 
+// 单目摄像机orbslam 初始化
 void Tracking::MonocularInitialization()
 {
 
+    // 无初始化构造器
     if(!mpInitializer)
     {
         // Set Reference Frame
+        // 设置一帧作为初始帧
         if(mCurrentFrame.mvKeys.size()>100)
         {
             mInitialFrame = Frame(mCurrentFrame);
             mLastFrame = Frame(mCurrentFrame);
+            // 记录初始的去畸变的特征点坐标
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
@@ -622,6 +630,7 @@ void Tracking::MonocularInitialization()
             if(mpInitializer)
                 delete mpInitializer;
 
+            // 构建初始化器
             mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
 
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
@@ -632,6 +641,7 @@ void Tracking::MonocularInitialization()
     else
     {
         // Try to initialize
+        // 如果当前帧特征点个数少于100，则删除初始化器
         if((int)mCurrentFrame.mvKeys.size()<=100)
         {
             delete mpInitializer;
@@ -641,10 +651,12 @@ void Tracking::MonocularInitialization()
         }
 
         // Find correspondences
+        // orb匹配
         ORBmatcher matcher(0.9,true);
         int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
 
         // Check if there are enough correspondences
+        // 成功匹配的个数不够，则删除初始化器
         if(nmatches<100)
         {
             delete mpInitializer;
@@ -652,10 +664,11 @@ void Tracking::MonocularInitialization()
             return;
         }
 
+        // 当前平移和旋转矩阵
         cv::Mat Rcw; // Current Camera Rotation
         cv::Mat tcw; // Current Camera Translation
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
-
+        // 初始化器初始化,如果初始化成功，则赋值slam的初始化值
         if(mpInitializer->Initialize(mCurrentFrame, mvIniMatches, Rcw, tcw, mvIniP3D, vbTriangulated))
         {
             for(size_t i=0, iend=mvIniMatches.size(); i<iend;i++)
@@ -672,6 +685,7 @@ void Tracking::MonocularInitialization()
             cv::Mat Tcw = cv::Mat::eye(4,4,CV_32F);
             Rcw.copyTo(Tcw.rowRange(0,3).colRange(0,3));
             tcw.copyTo(Tcw.rowRange(0,3).col(3));
+            // 设置初始pose
             mCurrentFrame.SetPose(Tcw);
 
             CreateInitialMapMonocular();
@@ -1689,6 +1703,7 @@ bool Tracking::Relocalization()
 
 }
 
+// 整个slam重启
 void Tracking::Reset()
 {
 
@@ -1729,6 +1744,7 @@ void Tracking::Reset()
 
 }
 
+// 修改摄像机内参
 void Tracking::ChangeCalibration(const string &strSettingPath)
 {
     cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
@@ -1762,6 +1778,7 @@ void Tracking::ChangeCalibration(const string &strSettingPath)
     Frame::mbInitialComputations = true;
 }
 
+// 中间通知修改为仅跟踪模式
 void Tracking::InformOnlyTracking(const bool &flag)
 {
     mbOnlyTracking = flag;
