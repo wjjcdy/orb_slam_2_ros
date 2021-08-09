@@ -78,7 +78,7 @@ void KeyFrameDatabase::clear()
     mvInvertedFile.resize(mpVoc->size());
 }
 
-// 检测与指定keyframe 有闭环关系的keyframe
+// 检测与指定keyframe 有闭环关系的keyframe，其相似程度评分需大于minScore
 vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float minScore)
 {
     // 获取所有与给定keyframe链接关系的keyframe，有链接关系是由连续时间关系的（即滑窗）

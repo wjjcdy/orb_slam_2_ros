@@ -517,7 +517,7 @@ set<KeyFrame*> KeyFrame::GetLoopEdges()
     return mspLoopEdges;
 }
 
-// 闭环节点未被擦除标志
+// 闭环节点不能被擦除标志，表明在将在闭环处理中
 void KeyFrame::SetNotErase()
 {
     unique_lock<mutex> lock(mMutexConnections);

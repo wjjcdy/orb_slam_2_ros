@@ -895,8 +895,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 pMap: 地图点
 pLoopKF ：闭环帧
 pCurKF ： 当前帧
-未经过Sim3调整的位姿
-经过Sim3调整的位姿
+NonCorrectedSim3：未经过Sim3调整的位姿
+CorrectedSim3: 经过Sim3调整的位姿
 LoopConnections, //闭环连接关系
 */
 void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
