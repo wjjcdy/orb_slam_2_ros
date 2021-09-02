@@ -24,6 +24,9 @@
 #include<opencv2/core/core.hpp>
 #include<opencv2/features2d/features2d.hpp>
 
+#include <Eigen/Core>
+#include <opencv2/core/eigen.hpp>
+
 #include"ORBmatcher.h"
 #include"FrameDrawer.h"
 #include"Converter.h"
@@ -44,8 +47,14 @@ namespace ORB_SLAM2
 {
 // 构造函数
 /*
-mState
+pSys： slam system 顶层类
+pVoc： 导入的离线词典
 sensor： 传感器类型
+pFrameDrawer： orbslam 绘图类
+pMap： 特征点全局地图
+pKFDB： 关键帧构建的词袋数据集
+sensor： 传感器类型
+parameters： orb特征点提取参数
 */
 Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
         Map *pMap, KeyFrameDatabase* pKFDB, const int sensor, ORBParameters& parameters):
@@ -260,7 +269,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
         mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
     else
         mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
-
+    // 开始执行tracking
     Track();
 
     return mCurrentFrame.mTcw.clone();
@@ -540,7 +549,18 @@ void Tracking::StereoInitialization()
     {
         // Set Frame pose to the origin
         // 当前帧即为第一帧的pose 为原点坐标，即对角全为1的齐次坐标矩阵（变换矩阵T）
-        mCurrentFrame.SetPose(cv::Mat::eye(4,4,CV_32F));
+        cv::Mat init_pose = cv::Mat::eye(4,4,CV_32F);
+        cv::Mat Rcw= cv::Mat::eye(3,3,CV_32F);        // init Camera Rotation
+        double pitch = -0.563741339;
+        Eigen::AngleAxisd yawAngle(Eigen::AngleAxisd(0,Eigen::Vector3d::UnitZ()));
+        Eigen::AngleAxisd pitchAngle(Eigen::AngleAxisd(0,Eigen::Vector3d::UnitY()));
+        Eigen::AngleAxisd rollAngle(Eigen::AngleAxisd(pitch,Eigen::Vector3d::UnitX()));
+        Eigen::Matrix3d rotation_matrix;
+        rotation_matrix=yawAngle*pitchAngle*rollAngle;
+        cv::eigen2cv(rotation_matrix, Rcw);
+
+        Rcw.copyTo(init_pose.rowRange(0,3).colRange(0,3));
+        mCurrentFrame.SetPose(init_pose);
 
         // Create KeyFrame
         // 第一帧也作为第一个关键帧

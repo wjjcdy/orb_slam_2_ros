@@ -270,6 +270,7 @@ void System::TrackMonocular(const cv::Mat &im, const double &timestamp)
             mpTracker->InformOnlyTracking(true);
             mbActivateLocalizationMode = false;
         }
+        // 取消重定位
         if(mbDeactivateLocalizationMode)
         {
             mpTracker->InformOnlyTracking(false);
